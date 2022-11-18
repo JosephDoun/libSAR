@@ -45,10 +45,6 @@ class S1SARImage(SARImage):
     def bands(self):
         return self._bands
 
-    @bands.setter
-    def bands(self, bands: List):
-        self._bands = bands
-
 
 class SLC(S1SARImage):
     def __init__(self, SAFE: str):
@@ -111,8 +107,9 @@ class Band:
 
 class Measurement:
     def __init__(self, path: str):
-        self._file = os.path.split(path)[-1]
-        self.band  = self._file.split("-")[3]
+        self._path: str = path
+        self._file: str = os.path.split(path)[-1]
+        self._band: str = self._file.split("-")[3]
 
 
 class Annotation(XMLMetadata):
@@ -121,15 +118,46 @@ class Annotation(XMLMetadata):
         self._file       = os.path.split(path)[-1]
         self._num_bursts = len(self.swathTiming.burstList)
         self._linespb    = int(self.swathTiming.linesPerBurst.text)        
-        a = self.swathTiming.burstList.burst_8.lastValidSample.text.split()
-        print(self.swathTiming.burstList.burst_8.burstId, len(a))
+        self._sampspb    = int(self.swathTiming.samplesPerBurst.text)
 
 
 class Burst:
     def __init__(self, i: int, parent: Band):
-        self.meta = parent._annotation.swathTiming.burstList[f'burst_{i}']
+        self.burst_info = parent._annotation.swathTiming.burstList[f'burst_{i}']
+        self.__path     = parent._measurement._path
+        self.__lpb      = parent._annotation._linespb
+        self.__spb      = parent._annotation._sampspb
+        self.__id       = self.burst_info.burstId
+        self.__line     = self.__lpb * i
+        self.__fsample  = np.fromstring(self.burst_info.firstValidSample.text,
+                                        sep=' ',
+                                        dtype=int)
+        self.__lsample  = np.fromstring(self.burst_info.lastValidSample.text,
+                                        sep=' ',
+                                        dtype=int)
+        self._vstart: int = (self.__fsample > 0).argmax().item()
+        self._vend  : int = (self.__fsample[self._vstart:] < 0).argmax().item() + self._vstart
+        self._hstart: int = self.__fsample.max().item()
+        self._hend  : int = self.__lsample.max().item()
 
+        self._vstart += self.__line
+        self._vend   += self.__line
 
+    @property
+    def array(self):
+        return gdal_array.LoadFile(self.__path,
+                                   xoff=self._hstart,
+                                   yoff=self._vstart,
+                                   xsize=self._hend-self._hstart,
+                                   ysize=self._vend-self._vstart)
 
+    @property
+    def amplitude(self):
+        amp = np.abs(self.array) + 1
+        amp = 10*np.log10(amp)
+        return amp
 
+    @property
+    def phase(self):
+        return np.angle(self.array)
 
