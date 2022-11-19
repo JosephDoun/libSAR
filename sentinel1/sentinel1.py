@@ -75,7 +75,10 @@ class SubSwath:
         self.__parent = parent
         self._iw      = i
         self._bands   = [Band(band, parent, i) for band in self.__parent._bands]
-    
+        
+        for i, band in enumerate(self.__parent._bands):
+            self.__dict__[band] = self._bands[i]
+
     @property
     def bands(self):
         return self._bands
@@ -84,6 +87,9 @@ class SubSwath:
         "Return desired band."
         return self._bands[idx]
 
+    def __repr__(self):
+        return f"<{type(self).__name__} {self._iw} object>"
+
 
 class Band:
     def __init__(self, band: str, parent: SLC, _iw: int):
@@ -91,18 +97,27 @@ class Band:
                f'{parent.mode.lower()}{_iw}-'
                f'{parent.product.lower()}-'
                f'{band.lower()}-*')
+        self.__name: str  = band
+
         self._measurement = Measurement(
                 glob(os.path.join(parent._SAFE, 'measurement', base))[0]
                 )
         self._annotation  = Annotation(
                 glob(os.path.join(parent._SAFE, 'annotation', base))[0]
                 )
+        
         self.__bursts     = [Burst(i, self) for i
                              in range(self._annotation._num_bursts)]
     
     def __getitem__(self, idx):
-        "Return desired burst of Band."
+        "Return desired bursts of Band."
         return self.__bursts[idx]
+
+    def __compose__(self, *args):
+        "Compositor method for multiple bursts."
+
+    def __repr__(self):
+        return f"<{type(self).__name__} {self.__name} object>"
 
 
 class Measurement:
@@ -122,8 +137,10 @@ class Annotation(XMLMetadata):
 
 
 class Burst:
+    "Class representing a S1 TOPSAR burst and all its attributes."
     def __init__(self, i: int, parent: Band):
         self.burst_info = parent._annotation.swathTiming.burstList[f'burst_{i}']
+        self.__i        = i
         self.__path     = parent._measurement._path
         self.__lpb      = parent._annotation._linespb
         self.__spb      = parent._annotation._sampspb
@@ -135,22 +152,29 @@ class Burst:
         self.__lsample  = np.fromstring(self.burst_info.lastValidSample.text,
                                         sep=' ',
                                         dtype=int)
-        self._vstart: int = (self.__fsample > 0).argmax().item()
-        self._vend  : int = (self.__fsample[self._vstart:] < 0).argmax().item() + self._vstart
+        
         self._hstart: int = self.__fsample.max().item()
         self._hend  : int = self.__lsample.max().item()
+        self._vstart: int = (self.__fsample > 0).argmax().item()
+        self._vend  : int = (
+                self.__fsample[self._vstart:] < 0
+                ).argmax().item() + self._vstart
 
         self._vstart += self.__line
         self._vend   += self.__line
 
+        self.__array_coords = {(self._hstart,
+                                self._vstart,
+                                self._hend-self._hstart,
+                                self._vend-self._vstart)}
+
     @property
     def array(self):
-        return gdal_array.LoadFile(self.__path,
-                                   xoff=self._hstart,
-                                   yoff=self._vstart,
-                                   xsize=self._hend-self._hstart,
-                                   ysize=self._vend-self._vstart)
-
+        zeros = np.zeros((sum([x[3] for x in self.__array_coords]),
+                          min([x[2] for x in self.__array_coords])))
+        print(zeros.shape)
+        return gdal_array.LoadFile(self.__path, *list(self.__array_coords)[0])
+    
     @property
     def amplitude(self):
         amp = np.abs(self.array) + 1
@@ -160,4 +184,22 @@ class Burst:
     @property
     def phase(self):
         return np.angle(self.array)
+
+    def __geolocate__(self):
+        ...
+
+    def __add__(self, other: "Burst"):
+        assert self.__path == other.__path, "You can only merge bursts "
+        "of the same swath and band."
+        if not self == other:
+            self.__array_coords = self.__array_coords.union(
+                    other.__array_coords
+                    )
+            print(self.__array_coords)
+        return self
+
+    def __repr__(self):
+        return f"<{type(self).__name__} {self.__i} object>"
+
+
 
