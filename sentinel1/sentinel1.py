@@ -1,5 +1,5 @@
 from   glob   import glob
-from   osgeo  import gdal, gdal_array
+from   osgeo  import gdal, gdal_array, osr
 from   abc    import ABC, abstractmethod
 from ..base   import SARImage, XMLMetadata
 from   typing import List
@@ -18,6 +18,9 @@ class S1SARImage(SARImage):
                  "SM": 6}
     
     def __init__(self, SAFE: str):
+        assert SAFE.endswith('.SAFE'), "Constructor expects SAFE directory."
+        SAFE = os.path.split(SAFE)[-1]
+        
         data: list = SAFE.replace('.', '_').split('_')
         '' in data and data.remove('')
         
@@ -53,8 +56,10 @@ class SLC(S1SARImage):
         super().__init__(SAFE)
         self. _SAFE   = SAFE
         self.__swaths = [
-                SubSwath(i, self) for i in range(1, self._num_swaths+1)
-                ]
+            
+            SubSwath(i, self) for i in range(1, self._num_swaths+1)
+            
+        ]
 
     def __getitem__(self, idx):
         "Return desired SubSwath."
@@ -110,13 +115,11 @@ class Band:
                              in range(self._annotation._num_bursts)]
     
     def __getitem__(self, idx):
-        "Return desired bursts of Band."
+        "Return desired bursts of Band object."
         if not isinstance(idx, slice):
-            idx = slice(idx, idx + 1)
-        return sum( self.__bursts[idx] )
-
-    def __compose__(self, *args):
-        "Compositor method for multiple bursts."
+            idx = slice(idx, idx + 1 or None)
+        returnable = self.__bursts[idx]
+        return returnable[0] if len(returnable) == 1 else BurstGroup(returnable)
 
     def __repr__(self):
         return f"<{type(self).__name__} {self.__name} object>"
@@ -127,7 +130,7 @@ class Measurement:
         self._path: str = path
         self._file: str = os.path.split(path)[-1]
         self._band: str = self._file.split("-")[3]
-
+        
         self._ds  : gdal.Dataset = gdal.Open(path)
 
 
@@ -138,6 +141,11 @@ class Annotation(XMLMetadata):
         self._num_bursts = len(self.swathTiming.burstList)
         self._linespb    = int(self.swathTiming.linesPerBurst.text)        
         self._sampspb    = int(self.swathTiming.samplesPerBurst.text)
+        self._dt         = float(self.imageAnnotation
+                                     .imageInformation
+                                     .azimuthTimeInterval
+                                     .text)
+        # Debugging.
         print(self.generalAnnotation,
               self.geolocationGrid.geolocationGridPointList.geolocationGridPoint_0.line,
               self.geolocationGrid.geolocationGridPointList.geolocationGridPoint_0.pixel)
@@ -146,56 +154,95 @@ class Burst:
     "Class representing a S1 TOPSAR burst and all its attributes."
     def __init__(self, i: int, parent: Band):
         self.burst_info = parent._annotation.swathTiming.burstList[f'burst_{i}']
-        self.__i        = {i}
-        self.__path     = parent._measurement._path
-        self.__lpb      = parent._annotation._linespb
-        self.__spb      = parent._annotation._sampspb
-        self.__id       = self.burst_info.burstId
-        self.__line     = self.__lpb * i
-        self.__fsample  = np.fromstring(self.burst_info.firstValidSample.text,
+        self._i        = {i}
+        self._path     = parent._measurement._path
+        self._lpb      = parent._annotation._linespb
+        self._spb      = parent._annotation._sampspb
+        self._id       = self.burst_info.burstId
+        self._line     = self._lpb * i
+        self._fsample  = np.fromstring(self.burst_info.firstValidSample.text,
                                         sep=' ',
                                         dtype=int)
-        self.__lsample  = np.fromstring(self.burst_info.lastValidSample.text,
+        self._lsample  = np.fromstring(self.burst_info.lastValidSample.text,
                                         sep=' ',
                                         dtype=int)
         
-        self._hstart: int = self.__fsample.max().item()
-        self._hend  : int = self.__lsample.max().item()
-        self._vstart: int = (self.__fsample > 0).argmax().item()
+        self._dt       = parent._annotation._dt
+        self._t        = float(self.burst_info.azimuthAnxTime.text)
+        self._atimes   = self._t + np.arange(self._lpb) * self._dt
+        
+        self.t0 = self._t
+        self._to_time  = lambda l: self._t + l * self._dt
+        self._to_line  = lambda t: int((t - self.t0) * 1 / self._dt + .1)
+        
+        self._hstart: int = self._fsample.max().item()
+        self._hend  : int = self._lsample.max().item()
+        self._vstart: int = (self._fsample > 0).argmax().item()
         self._vend  : int = (
-                self.__fsample[self._vstart:] < 0
+                # Comment on this.
+                # Find index of last valid (non negative) value.
+                self._fsample[self._vstart:] < 0
                 ).argmax().item() + self._vstart
 
-        self._vstart += self.__line
-        self._vend   += self.__line
+        # Comment on this part.
+        self._vstart += self._line
+        self._vend   += self._line
 
-        self.__array_coords = {(self._hstart,
-                                self._vstart,
-                                self._hend-self._hstart,
-                                self._vend-self._vstart)}
+        # Each burst should be explicitly bound to its super-objects.
+        # Higher objects should be available for access recursively.
+        # self._band = parent.__name
         
-        self.ds = self._measurement._ds
+        self._src_coords = (self._hstart,
+                            self._vstart,
+                            self._hend-self._hstart,
+                            self._vend-self._vstart,)
+        
+        ds = parent._measurement._ds
+                
+        # Assumption: Each burst has two rows of GCPs
+        # associated with it, which are independent.
+        GCPs = ds.GetGCPs()[:]#[i*21:(i+2)*21]
+        # self.GeoTransform = gdal.GCPsToGeoTransform(self.GCPs)
+        # self.InvGeoTransform = gdal.InvGeoTransform(self.GeoTransform)
+        
+        # self.ds = self.__build_ds(GCPs)
         
         # More debugging stuff.
-        print(self.__array_coords)
+        print(self._src_coords)
 
+    def __build_ds(self, gcps: List[gdal.GCP]):
+        """
+        Create a Virtual Dataset that belongs to the burst.
+        
+        # TODO
+        # REMOVE.
+        
+        # CHANGE THIS FUNCTION TO HANDLE GEOTRANSFORMATION.
+        # i.e. Find origin.
+        # TODO
+        """
+        # ds: gdal.Dataset = gdal.Translate('',
+        #                                   srcDS=self.__path,
+        #                                   options=gdal.TranslateOptions(
+        #                                       srcWin=(0, self.__line,
+        #                                               self.__spb, self.__lpb),
+        #                                       format='VRT',
+        #                                       noData=0,
+        #                                   ))
+        # ref = osr.SpatialReference()
+        # ref.ImportFromEPSG(4326)
+        # ds.SetGCPs(gcps, ref)
+        
+        # ds = gdal.Warp('', ds, options=gdal.WarpOptions(
+        #     dstSRS='EPSG:4326',
+        #     format='VRT'
+        #     ))
+        # gdal.BuildVRTOptions()
+        return None
+    
     @property
     def array(self):
-        zeros = np.zeros((sum([x[3] for x in self.__array_coords]),
-                          min([x[2] for x in self.__array_coords])),
-                         dtype=np.complex64)
-
-        _coords = np.array(sorted(self.__array_coords,
-                                  key=lambda x: x[1]))
-        
-        i, j, p    = 0, 0, 0
-        for k, coords in enumerate(_coords):
-            j         += coords[3]
-            coords[2]  = zeros.shape[-1]
-            zeros[i:j] = gdal_array.LoadFile(self.__path, *coords.tolist())
-            i         += coords[3]
-
-        return zeros
+        return gdal_array.LoadFile(self._path, *self._src_coords)
     
     @property
     def amplitude(self):
@@ -207,29 +254,55 @@ class Burst:
     def phase(self):
         return np.angle(self.array)
 
-    def __geolocate__(self):
-        ...
-
-    def __add__(self, other: "Burst"):
-        assert self.__path == other.__path, "You can only merge bursts "
-        "of the same swath and band."
-        if not self == other:
-            
-            _copy = copy(self)
-            _copy.__array_coords = _copy.__array_coords.union(
-                   
-                    other.__array_coords
-                   
-                    )
-            _copy.__i = _copy.__i.union( other.__i )
-
-        return _copy
-
-    def __radd__(self, other):
-        return self
-
     def __repr__(self):
-        return f"<{type(self).__name__} {sorted(self.__i)} object>"
+        return f"<{type(self).__name__} {sorted(self._i)} object>"
 
 
+class BurstGroup:
+    def __init__(self, bursts: List[Burst]):
+        self.__bursts     = sorted(bursts, key=lambda x: x._i)
+        self.__i          = [burst._i for burst in bursts]
+        self.__src_coords = [burst._src_coords for burst in bursts]
+        self.__overlaps   = [
+            self.__get_overlap(
+                bursts[i-1],
+                bursts[i]
+                ) for i in range(1, len(bursts))
+        ]
+        self.__shape     = (
+            # Calculate dimensions of debursted array.
+            
+            # Max line minus min line minus overlaps.
+            self.__src_coords[-1][1] -
+            self.__src_coords[0][1]  -
+            sum(self.__overlaps),
+            
+            # Maximum width of all bursts.
+            max(burst._src_coords[2] for burst in bursts) -
+            min(burst._src_coords[0] for burst in bursts)
+        )
 
+    @property
+    def array(self):
+        array = np.zeros((self.__shape))
+        for burst in self.__bursts:
+            pass
+        return array
+    
+    def __get_overlap(self, x: Burst, y: Burst) -> int:
+        """
+        Description: Index azimuth times of Bursts and...
+        """
+        
+        overlap = (x._atimes[x._src_coords[1] + x._src_coords[3] - x._line] -
+                   y._atimes[y._src_coords[1] - y._line])
+        
+        # Following lines might have to change
+        # from floor division to rounding.
+        overlap //= x._dt
+        overlap  += 1
+        
+        return int(overlap)
+    
+    def __repr__(self):
+        return f"<{type(self).__name__} {self.__i} object>"
