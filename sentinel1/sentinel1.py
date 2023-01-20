@@ -264,10 +264,11 @@ class BurstGroup:
         self.__i          = [burst._i for burst in bursts]
         self.__src_coords = [burst._src_coords for burst in bursts]
         self.__overlaps   = [
-            self.__get_overlap(
+            0,
+            *[self.__get_overlap(
                 bursts[i-1],
                 bursts[i]
-                ) for i in range(1, len(bursts))
+                ) for i in range(1, len(bursts))]
         ]
         self.__shape     = (
             # Calculate dimensions of debursted array.
@@ -278,8 +279,8 @@ class BurstGroup:
             sum(self.__overlaps),
             
             # Maximum width of all bursts.
-            max(burst._src_coords[2] for burst in bursts) -
-            min(burst._src_coords[0] for burst in bursts)
+            min(burst._src_coords[2] for burst in bursts) -
+            max(burst._src_coords[0] for burst in bursts)
         )
 
     @property
