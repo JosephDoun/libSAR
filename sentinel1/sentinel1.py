@@ -154,7 +154,7 @@ class Burst:
     "Class representing a S1 TOPSAR burst and all its attributes."
     def __init__(self, i: int, parent: Band):
         self.burst_info = parent._annotation.swathTiming.burstList[f'burst_{i}']
-        self._i        = {i}
+        self._i        = i
         self._path     = parent._measurement._path
         self._lpb      = parent._annotation._linespb
         self._spb      = parent._annotation._sampspb
@@ -255,14 +255,13 @@ class Burst:
         return np.angle(self.array)
 
     def __repr__(self):
-        return f"<{type(self).__name__} {sorted(self._i)} object>"
+        return f"<{type(self).__name__} {self._i} object>"
 
 
-class BurstGroup:
+class BurstGroup(Burst):
     def __init__(self, bursts: List[Burst]):
         self.__bursts     = sorted(bursts, key=lambda x: x._i)
         self.__i          = [burst._i for burst in bursts]
-        self.__src_coords = [burst._src_coords for burst in bursts]
         self.__overlaps   = [
             0,
             *[self.__get_overlap(
@@ -273,30 +272,60 @@ class BurstGroup:
         self.__shape     = (
             # Calculate dimensions of debursted array.
             
-            # Max line minus min line minus overlaps.
-            self.__src_coords[-1][1] -
-            self.__src_coords[0][1]  -
+            # Sum of lines minus overlaps.
+            sum([burst._src_coords[-1] for burst in bursts]) -
             sum(self.__overlaps),
             
-            # Maximum width of all bursts.
-            min(burst._src_coords[2] for burst in bursts) -
-            max(burst._src_coords[0] for burst in bursts)
+            # Minimum of all burst widths.
+            min([burst._src_coords[2] for burst in bursts])
         )
 
     @property
     def array(self):
-        array = np.zeros((self.__shape))
-        for burst in self.__bursts:
-            pass
+        array = np.zeros((self.__shape), dtype=np.complex64)
+        
+        k = 0
+        for burst, overlap in zip(self.__bursts, self.__overlaps):
+            # Adjust pointer for overlap.
+            k -= overlap
+            
+            # Index destination array.
+            array[
+                
+                # Starting from 0,
+                # Number of burst lines minus overlap
+                # with previous burst.
+                k:burst._src_coords[3] + k,
+                
+                # Fixed width.
+                 :self.__shape[1]
+                
+                   ] = burst.array[
+                                   :,
+                                   # Ensure correct width.
+                                   :self.__shape[1]
+                                   ]
+            
+            # Move pointer to last written line.
+            k += burst._src_coords[3]
         return array
     
     def __get_overlap(self, x: Burst, y: Burst) -> int:
         """
-        Description: Index azimuth times of Bursts and...
+        Description: Index azimuth times of Bursts, calculate
+                     azimuth overlap and convert to number of lines
+                     by dividing with dt (time per line).
         """
         
-        overlap = (x._atimes[x._src_coords[1] + x._src_coords[3] - x._line] -
-                   y._atimes[y._src_coords[1] - y._line])
+        overlap = (
+            # Azimuth time of last valid azimuth sample of previous burst.
+            x._atimes[x._src_coords[1] + x._src_coords[3] - x._line] -
+            
+            # Azimuth time of first valid azimuth sample of current burst.
+            y._atimes[y._src_coords[1] - y._line]
+        
+        # This difference is expected to te positive.
+        )
         
         # Following lines might have to change
         # from floor division to rounding.
