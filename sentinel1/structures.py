@@ -1,9 +1,8 @@
-from   glob   import glob
-from   osgeo  import gdal, gdal_array, osr
-from   abc    import ABC, abstractmethod
-from ..base   import SARImage, XMLMetadata
-from   typing import List
-from   copy   import copy
+from   glob    import glob
+from   osgeo   import gdal, gdal_array, osr
+from   abc     import ABC, abstractmethod
+from ..base    import SARImage, XMLMetadata
+from   typing  import List
 
 import os
 import numpy  as     np
@@ -146,9 +145,9 @@ class Annotation(XMLMetadata):
                                      .azimuthTimeInterval
                                      .text)
         # Debugging.
-        print(self.generalAnnotation,
-              self.geolocationGrid.geolocationGridPointList.geolocationGridPoint_0.line,
-              self.geolocationGrid.geolocationGridPointList.geolocationGridPoint_0.pixel)
+        # print(self.generalAnnotation,
+        #       self.geolocationGrid.geolocationGridPointList.geolocationGridPoint_0.line,
+        #       self.geolocationGrid.geolocationGridPointList.geolocationGridPoint_0.pixel)
 
 class Burst:
     "Class representing a S1 TOPSAR burst and all its attributes."
@@ -171,9 +170,9 @@ class Burst:
         self._t        = float(self.burst_info.azimuthAnxTime.text)
         self._atimes   = self._t + np.arange(self._lpb) * self._dt
         
-        self.t0 = self._t
-        self._to_time  = lambda l: self._t + l * self._dt
-        self._to_line  = lambda t: int((t - self.t0) * 1 / self._dt + .1)
+        # self.t0 = self._t
+        # self._to_time  = lambda l: self._t + l * self._dt
+        # self._to_line  = lambda t: int((t - self.t0) * 1 / self._dt + .1)
         
         self._hstart: int = self._fsample.max().item()
         self._hend  : int = self._lsample.max().item()
@@ -199,46 +198,12 @@ class Burst:
         
         ds = parent._measurement._ds
                 
-        # Assumption: Each burst has two rows of GCPs
-        # associated with it, which are independent.
-        GCPs = ds.GetGCPs()[:]#[i*21:(i+2)*21]
-        # self.GeoTransform = gdal.GCPsToGeoTransform(self.GCPs)
-        # self.InvGeoTransform = gdal.InvGeoTransform(self.GeoTransform)
-        
-        # self.ds = self.__build_ds(GCPs)
+        # Assumption: Each burst has one row of 21 GCPs
+        # associated with it, which are independent to other bursts.
+        self.GCPs = ds.GetGCPs()[i*21:(i+1)*21]
         
         # More debugging stuff.
-        print(self._src_coords)
-
-    def __build_ds(self, gcps: List[gdal.GCP]):
-        """
-        Create a Virtual Dataset that belongs to the burst.
-        
-        # TODO
-        # REMOVE.
-        
-        # CHANGE THIS FUNCTION TO HANDLE GEOTRANSFORMATION.
-        # i.e. Find origin.
-        # TODO
-        """
-        # ds: gdal.Dataset = gdal.Translate('',
-        #                                   srcDS=self.__path,
-        #                                   options=gdal.TranslateOptions(
-        #                                       srcWin=(0, self.__line,
-        #                                               self.__spb, self.__lpb),
-        #                                       format='VRT',
-        #                                       noData=0,
-        #                                   ))
-        # ref = osr.SpatialReference()
-        # ref.ImportFromEPSG(4326)
-        # ds.SetGCPs(gcps, ref)
-        
-        # ds = gdal.Warp('', ds, options=gdal.WarpOptions(
-        #     dstSRS='EPSG:4326',
-        #     format='VRT'
-        #     ))
-        # gdal.BuildVRTOptions()
-        return None
+        # print(self._src_coords)
     
     @property
     def array(self):
@@ -258,81 +223,87 @@ class Burst:
         return f"<{type(self).__name__} {self._i} object>"
 
 
+from  .deburst import Deburster
+
+
 class BurstGroup(Burst):
     def __init__(self, bursts: List[Burst]):
-        self.__bursts     = sorted(bursts, key=lambda x: x._i)
-        self.__i          = [burst._i for burst in bursts]
-        self.__overlaps   = [
-            0,
-            *[self.__get_overlap(
-                bursts[i-1],
-                bursts[i]
-                ) for i in range(1, len(bursts))]
-        ]
-        self.__shape     = (
-            # Calculate dimensions of debursted array.
+        self.__bursts   = []
+        self.__i        = []
+        self.__width    = 0
+        self.__height   = 0
+        self.__overlaps = [0]
+        
+        for burst in bursts:
+            self.__bursts.append(burst)
+            self.__i.append(burst._i)
+            # Sum up all the valid burst heights ignoring
+            # overlaps. Subtract overlaps later.
+            self.__height += burst._src_coords[-1]
             
-            # Sum of lines minus overlaps.
-            sum([burst._src_coords[-1] for burst in bursts]) -
-            sum(self.__overlaps),
+            # Keep the minimum width.
+            if burst._src_coords[2] < self.__width or not self.__width:
+                self.__width = burst._src_coords[2]
+        
+        self.__deburst   = Deburster(bursts)
+        self.__overlaps += [self.__get_overlap(bursts[i-1],
+                                               bursts[ i ])
+                             for i in range(1, len(bursts))]
+        self.__shape     = (
+            
+            # Sum of burst heights minus overlaps.
+            self.__height - sum(self.__overlaps),
             
             # Minimum of all burst widths.
-            min([burst._src_coords[2] for burst in bursts])
+            self.__width
         )
+        
+        self.__mod_gcps()
 
     @property
     def array(self):
         array = np.zeros((self.__shape), dtype=np.complex64)
         
-        k = 0
-        for burst, overlap in zip(self.__bursts, self.__overlaps):
-            # Adjust pointer for overlap.
-            k -= overlap
-            
+        for p, barray in self.__deburst:      
             # Index destination array.
-            array[
-                
-                # Starting from 0,
-                # Number of burst lines minus overlap
-                # with previous burst.
-                k:burst._src_coords[3] + k,
-                
-                # Fixed width.
-                 :self.__shape[1]
-                
-                   ] = burst.array[
-                                   :,
-                                   # Ensure correct width.
-                                   :self.__shape[1]
-                                   ]
-            
-            # Move pointer to last written line.
-            k += burst._src_coords[3]
+            array[# Starting from 0,
+                  # Number of burst lines minus overlap
+                  # with previous burst.
+                  p:barray.shape[0] + p,
+                  # Fixed width.
+                   :self.__shape[1]] = barray[:,
+                                              # Ensure correct width.
+                                              :self.__shape[1]]
         return array
     
-    def __get_overlap(self, x: Burst, y: Burst) -> int:
-        """
-        Description: Index azimuth times of Bursts, calculate
-                     azimuth overlap and convert to number of lines
-                     by dividing with dt (time per line).
-        """
-        
-        overlap = (
-            # Azimuth time of last valid azimuth sample of previous burst.
-            x._atimes[x._src_coords[1] + x._src_coords[3] - x._line] -
-            
-            # Azimuth time of first valid azimuth sample of current burst.
-            y._atimes[y._src_coords[1] - y._line]
-        
-        # This difference is expected to te positive.
-        )
-        
-        # Following lines might have to change
-        # from floor division to rounding.
-        overlap //= x._dt
-        overlap  += 1
-        
-        return int(overlap)
+    def __mod_gcps(self):
+        "Experimental. TO BE REMOVED."
+        self.GCPs = []
+        for i in range(1, len(self.__bursts)):
+            gcps = self.__bursts[i].GCPs
+            OL   = self.__bursts[i-1]._atimes[-1] - self.__bursts[i]._atimes[0]
+            OL //= self.__bursts[i]._dt
+            OL   = int(OL + 1)
+            for gcp in gcps:
+                gcp.GCPLine  -= OL
+                gcp.GCPPixel -= self.__bursts[i-1]._src_coords[0]
+                
+                self.GCPs.append(gcp) if self.__bursts[i-1]._src_coords[-2] >= gcp.GCPPixel >= 0 else None
+    
+    def save(self, filename: str):
+        "Persistance method. Quick implementation for debugging and other uses."
+        "# TO BE REMOVED."
+        driver: gdal.Driver  = gdal.GetDriverByName('GTiff')
+        ds    : gdal.Dataset = driver.Create(filename,
+                                             xsize=self.__shape[1],
+                                             ysize=self.__shape[0],
+                                             bands=1,
+                                             eType=gdal.GDT_Float32)
+        ds.WriteArray(self.amplitude)
+        ref = osr.SpatialReference()
+        ref.ImportFromEPSG(4326)
+        ds.SetGCPs(self.GCPs, ref)
+        ds.FlushCache()
     
     def __repr__(self):
         return f"<{type(self).__name__} {self.__i} object>"

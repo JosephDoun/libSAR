@@ -1,3 +1,3 @@
-from .sentinel1 import SLC
+from .structures import SLC
 
 
