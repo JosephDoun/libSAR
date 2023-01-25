@@ -8,14 +8,14 @@ class Deburster:
         self._bursts   = bursts
         self._pointerA = 0
         self._trackerW = 0
+        self._overlaps = [self.__overlap(i, bursts[i-1], bursts[i])
+                          for i in range(len(bursts))]
     
     def __len__(self):
         return len(self._bursts)
     
     def __call__(self, burst_idx: int):
-        overlap = self.__overlap(burst_idx,
-                                 self._bursts[burst_idx-1],
-                                 self._bursts[burst_idx])
+        overlap = self._overlaps[burst_idx]
         self._pointerA += self._trackerW - overlap
         self._trackerW  = self._bursts[burst_idx]._src_coords[3]
         return self._pointerA, self._bursts[burst_idx].array
@@ -55,4 +55,7 @@ class Deburster:
         overlap //= y._dt
         overlap  += 1
         return int(overlap)
-        
+    
+    @property
+    def overlaps(self):
+        return self._overlaps

@@ -246,13 +246,10 @@ class BurstGroup(Burst):
                 self.__width = burst._src_coords[2]
         
         self.__deburst   = Deburster(bursts)
-        self.__overlaps += [self.__get_overlap(bursts[i-1],
-                                               bursts[ i ])
-                             for i in range(1, len(bursts))]
         self.__shape     = (
             
             # Sum of burst heights minus overlaps.
-            self.__height - sum(self.__overlaps),
+            self.__height - sum(self.__deburst.overlaps),
             
             # Minimum of all burst widths.
             self.__width
