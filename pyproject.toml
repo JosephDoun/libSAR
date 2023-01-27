@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "libSAR"
+version = "0.0.0"
+authors = [
+        {name="Joseph Doundoulakis", email="iosif.doundoulakis@outlook.com"},
+            ]
+readme = "README.md"
+requires-python = ">=3.7"
+dependencies = ["GDAL >= 3.2.0"]

@@ -1,7 +1,7 @@
 from   glob    import glob
 from   osgeo   import gdal, gdal_array, osr
 from   abc     import ABC, abstractmethod
-from ..base    import SARImage, XMLMetadata
+from ..shared  import SARImage, XMLMetadata
 from   typing  import List
 
 import os
