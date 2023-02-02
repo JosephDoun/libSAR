@@ -1,5 +1,4 @@
 from   abc    import ABC, abstractmethod
-from   glob   import glob
 from   lxml   import etree
 from   typing import List
 
@@ -17,7 +16,12 @@ class SARImage(ABC):
                   'V': ['VV',
                         'VH']}
             }
-
+    
+    def __init__(self, PATH: str) -> None:
+        super().__init__()
+        if not os.path.exists(PATH):
+            raise FileNotFoundError("File does not exist.")
+    
     @property
     @abstractmethod
     def bands(self):
@@ -29,7 +33,7 @@ class XMLMetadata(ABC):
     __tag = lambda x: x.tag
 
     def __init__(self, path: str):
-        self._tree    : etree._ElementTree = etree.parse(path)
+        self._tree    : etree._ElementTree = etree.parse(path, parser=None)
         self._head    : etree._Element     = self._tree.getroot()
         
         for child in self._head.getchildren():

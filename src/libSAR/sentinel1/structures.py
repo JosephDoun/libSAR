@@ -17,11 +17,12 @@ class S1SARImage(SARImage):
                  "SM": 6}
     
     def __init__(self, SAFE: str):
-        assert SAFE.endswith('.SAFE'), "Constructor expects SAFE directory."
+        super().__init__(SAFE)
+        self.__isValidSAFE(SAFE)
         SAFE = os.path.split(SAFE)[-1]
         
-        data: list = SAFE.replace('.', '_').split('_')
-        '' in data and data.remove('')
+        metadata: list = SAFE.replace('.', '_').split('_')
+        '' in metadata and metadata.remove('')
         
         (self.platform,
          self.mode,
@@ -39,7 +40,7 @@ class S1SARImage(SARImage):
          self.abs_orbit,
          self.mission_data_take_id,
          self.unique_id,
-         _) = data
+         _) = metadata
         
         self._bands      = self._POLARISATIONS[__sod][__pol]
         self._num_swaths = self.__NSWATHS[self.mode]
@@ -47,17 +48,26 @@ class S1SARImage(SARImage):
     @property
     def bands(self):
         return self._bands
-
+    
+    def __isValidSAFE(self, SAFE: str):
+        "Validate SAFE directory path."
+        assert SAFE.endswith('.SAFE'), "Constructor expects SAFE directory."
+        
 
 class SLC(S1SARImage):
     def __init__(self, SAFE: str):
         "SAFE: Path to SAFE directory"
         super().__init__(SAFE)
         self. _SAFE   = SAFE
+        # TODO
+        # Change implementation from SLC -> Swath -> Band -> Burst
+        # to                         SLC -> Band -> Swath -> Burst.
+        # Allows to choose band and then assemble, which makes 
+        # more sense.
         self.__swaths = [
             
             SubSwath(i, self) for i in range(1, self._num_swaths+1)
-            
+
         ]
 
     def __getitem__(self, idx):
@@ -79,6 +89,13 @@ class SubSwath:
     def __init__(self, i: int, parent: SLC):
         self.__parent = parent
         self._iw      = i
+        
+        # TODO
+        # Change implementation from SLC -> Swath -> Band -> Burst
+        # to                         SLC -> Band -> Swath -> Burst.
+        # Allows to choose band and then assemble, which makes 
+        # more sense.
+        
         self._bands   = [Band(band, parent, i) for band in self.__parent._bands]
         
         for i, band in enumerate(self.__parent._bands):
@@ -103,7 +120,7 @@ class Band:
                f'{parent.product.lower()}-'
                f'{band.lower()}-*')
         self.__name: str  = band
-
+        
         self._measurement = Measurement(glob(os.path.join(parent._SAFE,
                                                           'measurement',
                                                           base))[0])
@@ -170,10 +187,6 @@ class Burst:
         self._t        = float(self.burst_info.azimuthAnxTime.text)
         self._atimes   = self._t + np.arange(self._lpb) * self._dt
         
-        # self.t0 = self._t
-        # self._to_time  = lambda l: self._t + l * self._dt
-        # self._to_line  = lambda t: int((t - self.t0) * 1 / self._dt + .1)
-        
         self._hstart: int = self._fsample.max().item()
         self._hend  : int = self._lsample.max().item()
         self._vstart: int = (self._fsample > 0).argmax().item()
@@ -191,32 +204,34 @@ class Burst:
         # Higher objects should be available for access recursively.
         # self._band = parent.__name
         
+        # The array coordinates of the burst.
         self._src_coords = (self._hstart,
                             self._vstart,
                             self._hend-self._hstart,
                             self._vend-self._vstart,)
         
+        # The dataset of the corresponding Swath - Band pair.
         ds = parent._measurement._ds
                 
-        # Assumption: Each burst has one row of 21 GCPs
-        # associated with it, which are independent to other bursts.
-        self.GCPs = ds.GetGCPs()[i*21:(i+1)*21]
-        
-        # More debugging stuff.
-        # print(self._src_coords)
+        # Comment on this from docs/sources.
+        # Experimental.
+        self.GCPs = ds.GetGCPs()[i*21:(i+1)*21] if ds else []
     
     @property
     def array(self):
+        "Fetch the burst out of the swath array."
         return gdal_array.LoadFile(self._path, *self._src_coords)
     
     @property
     def amplitude(self):
+        "Return the waves' amplitude in log scale."
         amp = np.abs(self.array) + 1
         amp = 10*np.log10(amp)
         return amp
 
     @property
     def phase(self):
+        "Return the waves' phase."
         return np.angle(self.array)
 
     def __repr__(self):
