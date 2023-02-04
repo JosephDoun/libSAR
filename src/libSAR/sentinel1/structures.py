@@ -58,21 +58,15 @@ class SLC(S1SARImage):
     def __init__(self, SAFE: str):
         "SAFE: Path to SAFE directory"
         super().__init__(SAFE)
-        self. _SAFE   = SAFE
-        # TODO
-        # Change implementation from SLC -> Swath -> Band -> Burst
-        # to                         SLC -> Band -> Swath -> Burst.
-        # Allows to choose band and then assemble, which makes 
-        # more sense.
-        self.__swaths = [
-            
-            SubSwath(i, self) for i in range(1, self._num_swaths+1)
-
-        ]
+        self. _SAFE  = SAFE
+        self.__bands = [Band(band, self) for band in self.bands]
+        
+        for i, band in enumerate(self.bands):
+            self.__dict__[band] = self.__bands[i]
 
     def __getitem__(self, idx):
-        "Return desired SubSwath."
-        return self.__swaths[idx]
+        "Return desired band."
+        return self.__bands[idx]
     
     def __len__(self):
         return len(self.__swaths)
@@ -85,51 +79,45 @@ class SLC(S1SARImage):
         ...
 
 
+class Band:
+    def __init__(self, band: str, parent: SLC):
+        
+        self._name: str  = band
+        self.__swaths: SubSwath = [SubSwath(self, nswath, parent) for nswath
+                                   in range(1, parent._num_swaths + 1)]
+    
+    def __getitem__(self, idx):
+        "Return desired SubSwath."
+        return self.__swaths[idx]
+
+    def __repr__(self):
+        return f"<{type(self).__name__} {self._name} object>"
+
+
 class SubSwath:
-    def __init__(self, i: int, parent: SLC):
-        self.__parent = parent
-        self._iw      = i
+    def __init__(self, band: Band, i: int, slc: SLC):
+        self._band = band._name
+        self._slc  = slc
+        self._iw    = i
         
-        # TODO
-        # Change implementation from SLC -> Swath -> Band -> Burst
-        # to                         SLC -> Band -> Swath -> Burst.
-        # Allows to choose band and then assemble, which makes 
-        # more sense.
+        base =(f'{slc.platform.lower()}-'
+               f'{slc.mode.lower()}{i}-'
+               f'{slc.product.lower()}-'
+               f'{band._name.lower()}-*')
         
-        self._bands   = [Band(band, parent, i) for band in self.__parent._bands]
-        
-        for i, band in enumerate(self.__parent._bands):
-            self.__dict__[band] = self._bands[i]
+        self._measurement = Measurement(glob(os.path.join(slc._SAFE,
+                                                          'measurement',
+                                                          base))[0])
+        self._annotation  = Annotation(glob(os.path.join(slc._SAFE,
+                                                         'annotation',
+                                                         base))[0])
+        self.__bursts     = [Burst(       i, self           ) for i
+                             in range(self._annotation._num_bursts)]
 
     @property
     def bands(self):
         return self._bands
 
-    def __getitem__(self, idx):
-        "Return desired band."
-        return self._bands[idx]
-
-    def __repr__(self):
-        return f"<{type(self).__name__} {self._iw} object>"
-
-
-class Band:
-    def __init__(self, band: str, parent: SLC, _iw: int):
-        base =(f'{parent.platform.lower()}-'
-               f'{parent.mode.lower()}{_iw}-'
-               f'{parent.product.lower()}-'
-               f'{band.lower()}-*')
-        self.__name: str  = band
-        
-        self._measurement = Measurement(glob(os.path.join(parent._SAFE,
-                                                          'measurement',
-                                                          base))[0])
-        self._annotation  = Annotation(glob(os.path.join(parent._SAFE,
-                                                         'annotation',
-                                                         base))[0])
-        self.__bursts     = [Burst(       i, self           ) for i
-                             in range(self._annotation._num_bursts)]
-    
     def __getitem__(self, idx):
         "Return desired bursts of Band object."
         if not isinstance(idx, slice):
@@ -138,7 +126,7 @@ class Band:
         return returnable[0] if len(returnable) == 1 else BurstGroup(returnable)
 
     def __repr__(self):
-        return f"<{type(self).__name__} {self.__name} object>"
+        return f"<{type(self).__name__} {self._iw} object>"
 
 
 class Measurement:
@@ -168,50 +156,52 @@ class Annotation(XMLMetadata):
 
 class Burst:
     "Class representing a S1 TOPSAR burst and all its attributes."
-    def __init__(self, i: int, parent: Band):
-        self.burst_info = parent._annotation.swathTiming.burstList[f'burst_{i}']
-        self._i        = i
-        self._path     = parent._measurement._path
-        self._lpb      = parent._annotation._linespb
-        self._spb      = parent._annotation._sampspb
-        self._id       = self.burst_info.burstId
-        self._line     = self._lpb * i
-        self._fsample  = np.fromstring(self.burst_info.firstValidSample.text,
+    def __init__(self, i: int, swath: SubSwath):
+        self.burst_info = swath._annotation.swathTiming.burstList[f'burst_{i}']
+        self.__swath     = swath
+        self.__band      = swath._band
+        self.__i         = i
+        self.__path      = swath._measurement._path
+        self.__lpb       = swath._annotation._linespb
+        self.__spb       = swath._annotation._sampspb
+        self.__id        = self.burst_info.burstId
+        self.__line      = self.__lpb * i
+        self.__fsample   = np.fromstring(self.burst_info.firstValidSample.text,
                                         sep=' ',
                                         dtype=int)
-        self._lsample  = np.fromstring(self.burst_info.lastValidSample.text,
+        self.__lsample   = np.fromstring(self.burst_info.lastValidSample.text,
                                         sep=' ',
                                         dtype=int)
         
-        self._dt       = parent._annotation._dt
-        self._t        = float(self.burst_info.azimuthAnxTime.text)
-        self._atimes   = self._t + np.arange(self._lpb) * self._dt
+        self.__dt        = swath._annotation._dt
+        self.__t         = float(self.burst_info.azimuthAnxTime.text)
+        self.__atimes    = self.__t + np.arange(self.__lpb) * self.__dt
         
-        self._hstart: int = self._fsample.max().item()
-        self._hend  : int = self._lsample.max().item()
-        self._vstart: int = (self._fsample > 0).argmax().item()
-        self._vend  : int = (
+        self.__hstart: int = self.__fsample.max().item()
+        self.__hend  : int = self.__lsample.max().item()
+        self.__vstart: int = (self.__fsample > 0).argmax().item()
+        self.__vend  : int = (
                 # Comment on this.
                 # Find index of last valid (non negative) value.
-                self._fsample[self._vstart:] < 0
-                ).argmax().item() + self._vstart
+                self.__fsample[self.__vstart:] < 0
+                ).argmax().item() + self.__vstart
 
         # Comment on this part.
-        self._vstart += self._line
-        self._vend   += self._line
+        self.__vstart += self.__line
+        self.__vend   += self.__line
 
         # Each burst should be explicitly bound to its super-objects.
         # Higher objects should be available for access recursively.
         # self._band = parent.__name
         
         # The array coordinates of the burst.
-        self._src_coords = (self._hstart,
-                            self._vstart,
-                            self._hend-self._hstart,
-                            self._vend-self._vstart,)
+        self.__src_coords = (self.__hstart,
+                             self.__vstart,
+                             self.__hend-self.__hstart,
+                             self.__vend-self.__vstart,)
         
         # The dataset of the corresponding Swath - Band pair.
-        ds = parent._measurement._ds
+        ds = swath._measurement._ds
                 
         # Comment on this from docs/sources.
         # Experimental.
@@ -220,7 +210,7 @@ class Burst:
     @property
     def array(self):
         "Fetch the burst out of the swath array."
-        return gdal_array.LoadFile(self._path, *self._src_coords)
+        return gdal_array.LoadFile(self.__path, *self.__src_coords)
     
     @property
     def amplitude(self):
@@ -235,7 +225,7 @@ class Burst:
         return np.angle(self.array)
 
     def __repr__(self):
-        return f"<{type(self).__name__} {self._i} object>"
+        return f"<{type(self).__name__} {self.__i} object>"
 
 
 from  .deburst import Deburster
@@ -251,14 +241,14 @@ class BurstGroup(Burst):
         
         for burst in bursts:
             self.__bursts.append(burst)
-            self.__i.append(burst._i)
+            self.__i.append(burst.__i)
             # Sum up all the valid burst heights ignoring
             # overlaps. Subtract overlaps later.
-            self.__height += burst._src_coords[-1]
+            self.__height += burst.__src_coords[-1]
             
-            # Keep the minimum width.
-            if burst._src_coords[2] < self.__width or not self.__width:
-                self.__width = burst._src_coords[2]
+            # Update to the minimum width.
+            if burst.__src_coords[2] < self.__width or not self.__width:
+                self.__width = burst.__src_coords[2]
         
         self.__deburst   = Deburster(bursts)
         self.__shape     = (
