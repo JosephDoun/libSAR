@@ -228,7 +228,7 @@ class Burst:
         return f"<{type(self).__name__} {self.__i} object>"
 
 
-from  .deburst import Deburster
+from  .assembly import Deburster
 
 
 class BurstGroup(Burst):
@@ -237,18 +237,18 @@ class BurstGroup(Burst):
         self.__i        = []
         self.__width    = 0
         self.__height   = 0
-        self.__overlaps = [0]
+        # self.__overlaps = [0]
         
         for burst in bursts:
             self.__bursts.append(burst)
-            self.__i.append(burst.__i)
+            self.__i.append(burst._Burst__i)
             # Sum up all the valid burst heights ignoring
             # overlaps. Subtract overlaps later.
-            self.__height += burst.__src_coords[-1]
+            self.__height += burst._Burst__src_coords[-1]
             
             # Update to the minimum width.
-            if burst.__src_coords[2] < self.__width or not self.__width:
-                self.__width = burst.__src_coords[2]
+            if burst._Burst__src_coords[2] < self.__width or not self.__width:
+                self.__width = burst._Burst__src_coords[2]
         
         self.__deburst   = Deburster(bursts)
         self.__shape     = (
@@ -283,14 +283,14 @@ class BurstGroup(Burst):
         self.GCPs = []
         for i in range(1, len(self.__bursts)):
             gcps = self.__bursts[i].GCPs
-            OL   = self.__bursts[i-1]._atimes[-1] - self.__bursts[i]._atimes[0]
-            OL //= self.__bursts[i]._dt
+            OL   = self.__bursts[i-1]._Burst__atimes[-1] - self.__bursts[i]._Burst__atimes[0]
+            OL //= self.__bursts[i]._Burst__dt
             OL   = int(OL + 1)
             for gcp in gcps:
                 gcp.GCPLine  -= OL
-                gcp.GCPPixel -= self.__bursts[i-1]._src_coords[0]
+                gcp.GCPPixel -= self.__bursts[i-1]._Burst__src_coords[0]
                 
-                self.GCPs.append(gcp) if self.__bursts[i-1]._src_coords[-2] >= gcp.GCPPixel >= 0 else None
+                self.GCPs.append(gcp) if self.__bursts[i-1]._Burst__src_coords[-2] >= gcp.GCPPixel >= 0 else None
     
     def save(self, filename: str):
         "Persistance method. Quick implementation for debugging and other uses."

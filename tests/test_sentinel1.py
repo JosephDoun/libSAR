@@ -1,5 +1,5 @@
 from libSAR.sentinel1.structures import SLC, S1SARImage
-from libSAR.sentinel1.deburst    import Deburster
+from libSAR.sentinel1.assembly    import Deburster
 
 import os
 import pytest
