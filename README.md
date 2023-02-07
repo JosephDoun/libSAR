@@ -1,3 +1,5 @@
+[![Testing workflow.](https://github.com/JosefDoun/libSAR/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/JosefDoun/libSAR/actions/workflows/test.yml)
+
 # libSAR
 A Python SAR image handling library, planned to be developed around easy Interferometry through a pythonic interface.
 
