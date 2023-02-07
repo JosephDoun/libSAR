@@ -83,13 +83,17 @@ class Band:
     def __init__(self, band: str, parent: SLC):
         
         self._name: str  = band
-        self.__swaths: SubSwath = [SubSwath(self, nswath, parent) for nswath
-                                   in range(1, parent._num_swaths + 1)]
+        self.__swaths: SubSwath    = [SubSwath(self, nswath, parent) for nswath
+                                      in range(1, parent._num_swaths + 1)]
+        self.__merger: SwathMerger = SwathMerger()
     
     def __getitem__(self, idx):
         "Return desired SubSwath."
         return self.__swaths[idx]
 
+    def __assemble__(self):
+        pass
+    
     def __repr__(self):
         return f"<{type(self).__name__} {self._name} object>"
 
@@ -228,7 +232,7 @@ class Burst:
         return f"<{type(self).__name__} {self.__i} object>"
 
 
-from  .assembly import Deburster
+from  .assembly import Deburster, SwathMerger
 
 
 class BurstGroup(Burst):
@@ -237,7 +241,6 @@ class BurstGroup(Burst):
         self.__i        = []
         self.__width    = 0
         self.__height   = 0
-        # self.__overlaps = [0]
         
         for burst in bursts:
             self.__bursts.append(burst)
@@ -309,3 +312,7 @@ class BurstGroup(Burst):
     
     def __repr__(self):
         return f"<{type(self).__name__} {self.__i} object>"
+
+
+class GRD(S1SARImage):
+    pass

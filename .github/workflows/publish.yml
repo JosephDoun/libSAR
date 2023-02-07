@@ -1,0 +1,5 @@
+name: Publish on PyPi
+
+on:
+  release:
+    branches: main

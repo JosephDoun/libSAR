@@ -1,5 +1,5 @@
-from libSAR.sentinel1.structures import SLC, S1SARImage
-from libSAR.sentinel1.assembly    import Deburster
+from libSAR.sentinel1.structures import *
+from libSAR.sentinel1.assembly   import *
 
 import os
 import pytest
@@ -57,11 +57,13 @@ class TestSLC:
     asce_safe = "test_data/..."
     
     slc_desc: SLC = SLC(desc_safe)
+    # slc_asc:  SLC = SLC(asce_safe)
     
     def test_s1sar_name_parsing(self):
         """
         Test for name parsing.
         """
+        assert isinstance(self.slc_desc, SLC)
 
 
 class TestDeburster:

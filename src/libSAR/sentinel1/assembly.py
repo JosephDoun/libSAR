@@ -1,5 +1,5 @@
 from  typing     import List
-from .structures import Burst
+from .structures import Burst, SubSwath
 
 
 class Deburster:
@@ -62,3 +62,7 @@ class Deburster:
     @property
     def overlaps(self):
         return self._overlaps
+    
+
+class SwathMerger:
+    pass
