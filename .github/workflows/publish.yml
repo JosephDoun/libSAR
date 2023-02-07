@@ -1,5 +1,31 @@
-name: Publish on PyPi
+name: Publish on PyPI
 
 on:
   release:
     branches: main
+
+jobs:
+  publish:
+    name: Publish.
+    runs-on: ubuntu-latest
+    steps:
+      -
+      uses: actions/checkout@v3
+      -
+      name: Set up Python env.
+      uses: actions/setup-python@v4
+        with:
+          python-version: '3.8'
+      -
+      name: Install dependencies
+      run: |
+        echo "Publishing on PyPI $(git branch)"
+        pip install --upgrade pip
+      -
+      name: Build package
+      run: |
+        echo "Building package."
+      -
+      name: Publish package
+      run: |
+        echo "Publishing package."
