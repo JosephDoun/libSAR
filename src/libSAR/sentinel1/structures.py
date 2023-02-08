@@ -153,7 +153,7 @@ class Annotation(XMLMetadata):
                                      .imageInformation
                                      .azimuthTimeInterval
                                      .text)
-        # Debugging. 
+        # Debugging.
         # print(self.generalAnnotation,
         #       self.geolocationGrid.geolocationGridPointList.geolocationGridPoint_0.line,
         #       self.geolocationGrid.geolocationGridPointList.geolocationGridPoint_0.pixel)

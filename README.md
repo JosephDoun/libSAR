@@ -3,7 +3,7 @@
 # libSAR
 A Python SAR image handling library, planned to be developed around easy Interferometry through a pythonic interface.
 
-## __Under development.__
+## __Early development.__
 
 
 Implemented:
