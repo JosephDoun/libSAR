@@ -3,16 +3,19 @@
 # libSAR
 A Python SAR image handling library, planned to be developed around easy Interferometry through a pythonic interface.
 
-## __Under development.__
+## __Early Development.__
 
-
-Implemented:
-- Base data structures for Sentinel 1 data components.
-- Sentinel 1 Single Look Complex data structure.
+Currently implemented:
+- Shared primitive objects for SAR images.
+- Sentinel 1 Single Look Complex class definition.
 - Debursting class for S1SLC (To be potentially abstracted or extended to share with other sensors).
 
 
-Example:
+Current SLC class composition hierarchy:
+  SLC -> Band -> SubSwath -> Burst
+
+
+Usage Example:
 
 ```
 >>> from libSAR.sentinel1 import SLC;
@@ -20,19 +23,19 @@ Example:
 
 ```
 
-Through the SLC object you can index into the individual Swath objects.
+Through the SLC object you can index into the individual Band objects.
 ```
 >>> img[:]
-[<SubSwath 1 object>, <SubSwath 2 object>, <SubSwath 3 object>]
-```
-
-Each Swath object consists of the different polarisation bands.
-```
->>> img[0][:]
 [<Band VV object>, <Band VH object>]
 ```
 
-And finally, each band consists of the individual bursts associated with it.
+Each Band object consists of SubSwaths.
+```
+>>> img[0][:]
+[<SubSwath 1 object>, <SubSwath 2 object>, <SubSwath 3 object>]
+```
+
+Finally, each SubSwath consists of the individual bursts associated with it.
 ```
 >>> img[0][0][5]
 <Burst 5 object>
