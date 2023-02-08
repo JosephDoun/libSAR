@@ -1,19 +1,19 @@
 name: Testing workflow.
 
-on: [push, pull_request]
-
+on:
+  push:
     paths:
       - "src/libSAR/**"
-
+  pull_request:
+    paths:
+      - "src/libSAR/**"
 jobs:
-
   test:
-
     name: Run the unit tests.
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.8", "3.9", "3.10"]
+        python-version: ["3.8"]
 
     steps:
       -
@@ -28,18 +28,19 @@ jobs:
       -
         name: Install dependencies.
         run: |
-          echo 'Installing dependencies... on $(git branch)'
+          echo "Installing dependencies... on $( git branch )"
+          sudo apt install --no-install-recommends gdal-bin libgdal-dev -y
           pip install --upgrade pip
-          pip install gdal
-          pip install numpy
-          pip install setuptools
           pip install wheel
-      
+          pip install build
+          pip install setuptools
+          pip install pytest pytest-cov
+          pip install numpy
+          pip install gdal==$(gdal-config --version)
       -
         name: Install package.
         run: |
           pip install .
-
       -
         name: Run tests.
         run: |

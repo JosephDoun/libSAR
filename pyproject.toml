@@ -10,4 +10,4 @@ authors = [
             ]
 readme = "README.md"
 requires-python = ">=3.7"
-dependencies = ["GDAL >= 3.2.0", "numpy > 1.20"]
+dependencies = ["numpy > 1.20", "gdal >= 3.2.0", "lxml > 4.5.0"]
