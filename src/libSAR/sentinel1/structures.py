@@ -8,17 +8,67 @@ import os
 import numpy  as     np
 
 
+class SAFEDirectory:
+    """
+    Class for the representation and parsing of SAFE directories.
+    
+    Responsible for directory validity checks.
+    """
+    
+    assertions = lambda SAFE: all([
+        os.path.exists(SAFE + 'annotation'),
+        os.path.exists(SAFE + 'measurement'),
+        os.path.exists(SAFE + 'manifest.safe'),
+        os.path.exists(SAFE + 'preview'),
+        os.path.exists(SAFE + os.path.split(SAFE)[-1]),
+    ])
+    
+    def __init__(self, SAFE: str) -> None:
+        try:
+            "Parsing."
+            assert self.assertions(SAFE)
+            
+        except Exception as e:
+            "Failure."
+            raise Exception
+
+
+class Measurement(gdal.Dataset):
+    def __init__(self, path: str):
+        super().__init__(path)
+        # self._path: str = path
+        # self._file: str = os.path.split(path)[-1]
+        # self._band: str = self._file.split("-")[3]
+        # self._ds  : gdal.Dataset = gdal.Open(path)
+
+
+class Annotation(XMLMetadata):
+    def __init__(self, path: str):
+        super().__init__(path)
+        self._file       = os.path.split(path)[-1]
+        self._num_bursts = len  (self.swathTiming.burstList)
+        self._linespb    = int  (self.swathTiming.linesPerBurst.text)        
+        self._sampspb    = int  (self.swathTiming.samplesPerBurst.text)
+        self._dt         = float(self.imageAnnotation
+                                     .imageInformation
+                                     .azimuthTimeInterval
+                                     .text)
+        # Debugging. 
+        # print(self.generalAnnotation,
+        #       self.geolocationGrid.geolocationGridPointList.geolocationGridPoint_0.line,
+        #       self.geolocationGrid.geolocationGridPointList.geolocationGridPoint_0.pixel)
+        
+
 class S1SARImage(SARImage):
-    "SENTINEL-1 SAR image parser class."
+    "Sentinel-1 SAR image parser class."
     
     __NSWATHS = {"WV": 2,
                  "IW": 3,
                  "EW": 5,
                  "SM": 6}
     
-    def __init__(self, SAFE: str):
+    def __init__(self, SAFE: str, *args, **kwargs):
         super().__init__(SAFE)
-        self.__isValidSAFE(SAFE)
         SAFE = os.path.split(SAFE)[-1]
         
         metadata: list = SAFE.replace('.', '_').split('_')
@@ -31,7 +81,9 @@ class S1SARImage(SARImage):
          (  
             self.p_level,
             self.p_class,
+            # Single or Double Polarisation.
             __sod,
+            # Polarisation.
             __pol
          ),
          
@@ -48,120 +100,17 @@ class S1SARImage(SARImage):
     @property
     def bands(self):
         return self._bands
-    
-    def __isValidSAFE(self, SAFE: str):
-        "Validate SAFE directory path."
-        assert SAFE.endswith('.SAFE'), "Constructor expects SAFE directory."
         
 
-class SLC(S1SARImage):
-    def __init__(self, SAFE: str):
-        "SAFE: Path to SAFE directory"
-        super().__init__(SAFE)
-        self. _SAFE  = SAFE
-        self.__bands = [Band(band, self) for band in self.bands]
-        
-        for i, band in enumerate(self.bands):
-            self.__dict__[band] = self.__bands[i]
-
-    def __getitem__(self, idx):
-        "Return desired band."
-        return self.__bands[idx]
-    
-    def __len__(self):
-        return len(self.__swaths)
-
-    @property
-    def bands(self):
-        return self._bands
-
-    def __matmul__(self, other: "SLC"):
-        ...
-
-
-class Band:
-    def __init__(self, band: str, parent: SLC):
-        
-        self._name: str  = band
-        self.__swaths: SubSwath    = [SubSwath(self, nswath, parent) for nswath
-                                      in range(1, parent._num_swaths + 1)]
-        self.__merger: SwathMerger = SwathMerger()
-    
-    def __getitem__(self, idx):
-        "Return desired SubSwath."
-        return self.__swaths[idx]
-
-    def __assemble__(self):
-        pass
-    
-    def __repr__(self):
-        return f"<{type(self).__name__} {self._name} object>"
-
-
-class SubSwath:
-    def __init__(self, band: Band, i: int, slc: SLC):
-        self._band = band._name
-        self._slc  = slc
-        self._iw    = i
-        
-        base =(f'{slc.platform.lower()}-'
-               f'{slc.mode.lower()}{i}-'
-               f'{slc.product.lower()}-'
-               f'{band._name.lower()}-*')
-        
-        self._measurement = Measurement(glob(os.path.join(slc._SAFE,
-                                                          'measurement',
-                                                          base))[0])
-        self._annotation  = Annotation(glob(os.path.join(slc._SAFE,
-                                                         'annotation',
-                                                         base))[0])
-        self.__bursts     = [Burst(       i, self           ) for i
-                             in range(self._annotation._num_bursts)]
-
-    @property
-    def bands(self):
-        return self._bands
-
-    def __getitem__(self, idx):
-        "Return desired bursts of Band object."
-        if not isinstance(idx, slice):
-            idx = slice(idx, idx + 1 or None)
-        returnable = self.__bursts[idx]
-        return returnable[0] if len(returnable) == 1 else BurstGroup(returnable)
-
-    def __repr__(self):
-        return f"<{type(self).__name__} {self._iw} object>"
-
-
-class Measurement:
-    def __init__(self, path: str):
-        self._path: str = path
-        self._file: str = os.path.split(path)[-1]
-        self._band: str = self._file.split("-")[3]
-        
-        self._ds  : gdal.Dataset = gdal.Open(path)
-
-
-class Annotation(XMLMetadata):
-    def __init__(self, path: str):
-        super().__init__(path)
-        self._file       = os.path.split(path)[-1]
-        self._num_bursts = len(self.swathTiming.burstList)
-        self._linespb    = int(self.swathTiming.linesPerBurst.text)        
-        self._sampspb    = int(self.swathTiming.samplesPerBurst.text)
-        self._dt         = float(self.imageAnnotation
-                                     .imageInformation
-                                     .azimuthTimeInterval
-                                     .text)
-        # Debugging. 
-        # print(self.generalAnnotation,
-        #       self.geolocationGrid.geolocationGridPointList.geolocationGridPoint_0.line,
-        #       self.geolocationGrid.geolocationGridPointList.geolocationGridPoint_0.pixel)
-
-class Burst:
+class Burst(S1SARImage):
     "Class representing a S1 TOPSAR burst and all its attributes."
-    def __init__(self, i: int, swath: SubSwath):
-        self.burst_info = swath._annotation.swathTiming.burstList[f'burst_{i}']
+    def __init__(self, SAFE: str, band: str, i: int):
+        super().__init__(SAFE)
+        # Instantiate a measurement and annotation object here.
+        self._measurement = Measurement()
+        self._annotation  = Annotation()
+        
+        self.burst_info  = swath._annotation.swathTiming.burstList[f'burst_{i}']
         self.__swath     = swath
         self.__band      = swath._band
         self.__i         = i
@@ -205,7 +154,7 @@ class Burst:
                              self.__vend-self.__vstart,)
         
         # The dataset of the corresponding Swath - Band pair.
-        ds = swath._measurement._ds
+        self.__ds = swath._measurement._ds
                 
         # Comment on this from docs/sources.
         # Experimental.
@@ -312,6 +261,85 @@ class BurstGroup(Burst):
     
     def __repr__(self):
         return f"<{type(self).__name__} {self.__i} object>"
+
+
+class SubSwath:
+    def __init__(self, band: Band, i: int, slc: SLC):
+        self._band = band._name
+        self._slc  = slc
+        self._iw    = i
+        
+        base =(f'{slc.platform.lower()}-'
+               f'{slc.mode.lower()}{i}-'
+               f'{slc.product.lower()}-'
+               f'{band._name.lower()}-*')
+        
+        self._measurement = Measurement(glob(os.path.join(slc._SAFE,
+                                                          'measurement',
+                                                          base))[0])
+        self._annotation  = Annotation(glob(os.path.join(slc._SAFE,
+                                                         'annotation',
+                                                         base))[0])
+        self.__bursts     = [Burst(       i, self           ) for i
+                             in range(self._annotation._num_bursts)]
+
+    @property
+    def bands(self):
+        return self._bands
+
+    def __getitem__(self, idx):
+        "Return desired bursts of Band object."
+        if not isinstance(idx, slice):
+            idx = slice(idx, idx + 1 or None)
+        returnable = self.__bursts[idx]
+        return returnable[0] if len(returnable) == 1 else BurstGroup(returnable)
+
+    def __repr__(self):
+        return f"<{type(self).__name__} {self._iw} object>"
+
+
+class Band:
+    def __init__(self, band: str, parent: SLC):
+        
+        self._name: str  = band
+        self.__swaths: SubSwath    = [SubSwath(self, nswath, parent) for nswath
+                                      in range(1, parent._num_swaths + 1)]
+        self.__merger: SwathMerger = SwathMerger()
+    
+    def __getitem__(self, idx):
+        "Return desired SubSwath."
+        return self.__swaths[idx]
+
+    def __assemble__(self):
+        pass
+    
+    def __repr__(self):
+        return f"<{type(self).__name__} {self._name} object>"
+
+
+class SLC(S1SARImage):
+    def __init__(self, SAFE: str):
+        "SAFE: Path to SAFE directory"
+        super().__init__(SAFE)
+        self. _SAFE  = SAFE
+        self.__bands = [Band(band, self) for band in self.bands]
+        
+        for i, band in enumerate(self.bands):
+            self.__dict__[band] = self.__bands[i]
+
+    def __getitem__(self, idx):
+        "Return desired band."
+        return self.__bands[idx]
+    
+    def __len__(self):
+        return len(self.__swaths)
+
+    @property
+    def bands(self):
+        return self._bands
+
+    def __matmul__(self, other: "SLC"):
+        ...
 
 
 class GRD(S1SARImage):

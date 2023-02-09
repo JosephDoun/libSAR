@@ -26,6 +26,12 @@ DATADUMMY = {
 }
 
 
+class TestSAFEDirectory:
+    "Run & Test SAFEDirectory class."
+    def test_safe(self):
+        SAFEDirectory(DATASLC['descending'])
+
+
 class TestS1SARImage:
     "Test class for S1SARImage class."    
     def test_name_parsing_slc(self):
