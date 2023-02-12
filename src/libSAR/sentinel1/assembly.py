@@ -17,7 +17,7 @@ class Deburster:
     def __call__(self, burst_idx: int):
         overlap = self._overlaps[burst_idx]
         self._pointerA += self._trackerW - overlap
-        self._trackerW  = self._bursts[burst_idx]._Burst__src_coords[3]
+        self._trackerW  = self._bursts[burst_idx]._arr_coords[3]
         return self._pointerA, self._bursts[burst_idx].array
     
     def __iter__(self):
@@ -45,17 +45,15 @@ class Deburster:
         
         overlap = (
             # Azimuth time of last valid azimuth sample of previous burst.
-            x._Burst__atimes[x._Burst__src_coords[1] +
-                             x._Burst__src_coords[3] -
-                             x._Burst__line] -
+            x._atimes[x._arr_coords[1] + x._arr_coords[3] - x._line] -
             # Azimuth time of first valid azimuth sample of current burst.
-            y._Burst__atimes[y._Burst__src_coords[1] -
-                             y._Burst__line]
+            y._atimes[y._arr_coords[1] - y._line]
+            
         # This difference is expected to te positive.
         )
         # Following lines might have to change
         # from floor division to rounding.
-        overlap //= y._Burst__dt
+        overlap //= y._dt
         overlap  += 1
         return int(overlap)
     

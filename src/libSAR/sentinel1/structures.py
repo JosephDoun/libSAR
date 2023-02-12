@@ -218,7 +218,7 @@ class Swath(Measurement, Annotation):
         
         ]
         
-        self.__geoloc = Geolocator(self)
+        self._geoloc = Geolocator(self)
 
     @property
     def band(self):
@@ -252,54 +252,54 @@ from  .geolocation import Geolocator
 class Burst:
     "Class representing a S1 TOPSAR burst and all its attributes."
     def __init__(self, i: int, parent: Swath):
-        self.burst_info  = parent.swathTiming.burstList[f'burst_{i}']
-        self.__swath     = parent
-        self.__band      = parent.band
-        self.__i         = i
-        self.__burstn    = i + 1
-        self.__path      = parent.measurement
-        self.__lpb       = parent._linespb
-        self.__spb       = parent._samplespb
-        self.__id        = self.burst_info.burstId
-        self.__line      = self.__lpb * i
-        self.__fsample   = np.fromstring(self.burst_info.firstValidSample.text,
+        self.burst_info = parent.swathTiming.burstList[f'burst_{i}']
+        self._swath     = parent
+        self._band      = parent.band
+        self._i         = i
+        self._burstn    = i + 1
+        self._path      = parent.measurement
+        self._lpb       = parent._linespb
+        self._spb       = parent._samplespb
+        self._id        = self.burst_info.burstId
+        self._line      = self._lpb * i
+        self._fsample   = np.fromstring(self.burst_info.firstValidSample.text,
                                         sep=' ',
                                         dtype=int)
-        self.__lsample   = np.fromstring(self.burst_info.lastValidSample.text,
+        self._lsample   = np.fromstring(self.burst_info.lastValidSample.text,
                                         sep=' ',
                                         dtype=int)
         
-        self.__dt        = parent._dt
-        self.__t         = float(self.burst_info.azimuthAnxTime.text)
-        self.__atimes    = self.__t + np.arange(self.__lpb) * self.__dt
+        self._dt        = parent._dt
+        self._t         = float(self.burst_info.azimuthAnxTime.text)
+        self._atimes    = self._t + np.arange(self._lpb) * self._dt
         
-        self.__hstart: int = self.__fsample.max().item()
-        self.__hend  : int = self.__lsample.max().item()
-        self.__vstart: int = (self.__fsample > 0).argmax().item()
-        self.__vend  : int = (
+        self._hstart: int = self._fsample.max().item()
+        self._hend  : int = self._lsample.max().item()
+        self._vstart: int = (self._fsample > 0).argmax().item()
+        self._vend  : int = (
                 # Comment on this.
                 # Find index of last valid (non negative) value.
-                self.__fsample[self.__vstart:] < 0
-                ).argmax().item() + self.__vstart
+                self._fsample[self._vstart:] < 0
+                ).argmax().item() + self._vstart
 
         # Comment on this part.
-        self.__vstart += self.__line
-        self.__vend   += self.__line
+        self._vstart += self._line
+        self._vend   += self._line
 
         # Each burst should be explicitly bound to its super-objects.
         # Higher objects should be available for access recursively.
         # self._band = parent.__name
         
         # The array coordinates of the burst.
-        self.__src_coords = (self.__hstart,
-                             self.__vstart,
-                             self.__hend-self.__hstart,
-                             self.__vend-self.__vstart,)
+        self._arr_coords = (self._hstart,
+                            self._vstart,
+                            self._hend-self._hstart,
+                            self._vend-self._vstart,)
     
     @property
     def array(self):
         "Fetch the burst out of the swath array."
-        return gdal_array.LoadFile(self.__path, *self.__src_coords)
+        return gdal_array.LoadFile(self._path, *self._arr_coords)
     
     def __geotransform(self):
         "Derive from Swath geocoordinates. # TODO"
@@ -318,7 +318,7 @@ class Burst:
         return np.angle(self.array)
 
     def __repr__(self):
-        return f"<{type(self).__name__} {self.__burstn} object>"
+        return f"<{type(self).__name__} {self._burstn} object>"
 
 
 from  .assembly import Deburster, SwathMerger
@@ -326,36 +326,36 @@ from  .assembly import Deburster, SwathMerger
 
 class BurstGroup(Burst):
     def __init__(self, bursts: List[Burst]):
-        self.__bursts   = []
-        self.__i        = []
-        self.__burstn   = []
-        self.__width    = 0
-        self.__height   = 0
+        self._bursts   = []
+        self._i        = []
+        self._burstn   = []
+        self._width    = 0
+        self._height   = 0
         
         for burst in bursts:
-            self.__bursts.append(burst)
-            self.__i.append(burst._Burst__i)
-            self.__burstn.append(burst._Burst__burstn)
+            self._bursts.append(burst)
+            self._i.append(burst._i)
+            self._burstn.append(burst._burstn)
             
             # Sum up all the valid burst heights ignoring
             # overlaps. Subtract overlaps later.
-            self.__height += burst._Burst__src_coords[-1]
+            self._height += burst._arr_coords[-1]
             
             # Update to the minimum width.
-            if burst._Burst__src_coords[2] < self.__width or not self.__width:
+            if burst._arr_coords[2] < self._width or not self._width:
                 # Minimum width ensures no blank space.
                 # in range direction.
-                self.__width = burst._Burst__src_coords[2]
+                self._width = burst._arr_coords[2]
         
         self.__deburst   = Deburster(bursts)
         self.__shape     = (
             
             # Sum of burst heights minus overlaps.
-            self.__height - sum(self.__deburst.overlaps),
+            self._height - sum(self.__deburst.overlaps),
             
             # Minimum of all burst widths.
             # Temporary solution, to be revisited.
-            self.__width
+            self._width
         )
         
     @property
@@ -390,7 +390,7 @@ class BurstGroup(Burst):
         ds.FlushCache()
     
     def __repr__(self):
-        return f"<{type(self).__name__} {self.__burstn} object>"
+        return f"<{type(self).__name__} {self._burstn} object>"
 
 
 class GRD(S1SARImage):
