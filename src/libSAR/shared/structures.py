@@ -18,7 +18,7 @@ class SARImage(ABC):
             }
     
     def __init__(self, PATH: str) -> None:
-        super().__init__()
+        # super().__init__()
         if not os.path.exists(PATH):
             raise FileNotFoundError("File does not exist.")
     
@@ -67,3 +67,11 @@ class XMLMetadataHead(ABC):
         return f"<{type(self).__name__}>{self._children or self.element.text}"
 
     
+class Input(ABC):
+    "Base class for inputs."
+    def __init__(self, PATH: str) -> None:
+        pass
+    
+    @abstractmethod
+    def __check(self):
+        pass

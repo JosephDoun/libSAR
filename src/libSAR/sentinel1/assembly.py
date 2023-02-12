@@ -1,5 +1,5 @@
 from  typing     import List
-from .structures import Burst, SubSwath
+from .structures import Burst, Swath
 
 
 class Deburster:

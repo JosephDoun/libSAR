@@ -1,5 +1,6 @@
 from libSAR.sentinel1.structures import *
 from libSAR.sentinel1.assembly   import *
+from libSAR.shared.errors        import *
 
 import os
 import pytest
@@ -28,9 +29,13 @@ DATADUMMY = {
 
 class TestSAFEDirectory:
     "Run & Test SAFEDirectory class."
-    def test_safe(self):
-        SAFEDirectory(DATASLC['descending'])
+    def test_safe_valid(self):
+        assert SAFEDirectory(DATASLC['descending'])
+        pytest.raises(InvalidInputError, SAFEDirectory, DATADUMMY['1'])
 
+    def test_safe_attributes(self):
+        safe = SAFEDirectory(DATASLC['descending'])
+        
 
 class TestS1SARImage:
     "Test class for S1SARImage class."    
@@ -50,10 +55,6 @@ class TestS1SARImage:
         
     def test_name_parsing_grd(self):
         pass
-    
-    def test_exists(self):
-        "Test for non existent directory."
-        pytest.raises(FileNotFoundError, S1SARImage, DATADUMMY['1'])
     
 
 class TestSLC:
