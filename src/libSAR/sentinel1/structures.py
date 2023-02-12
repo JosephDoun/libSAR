@@ -179,29 +179,29 @@ class Swath(Measurement, Annotation):
         Associated with a band, measurement and annotation object.
         It contains multiple Burst objects.
     """
-    def __init__(self, iw: int, parent: Band):
+    def __init__(self, i: int, parent: Band):
         self._band = parent.name
-        self.iw    = iw
+        self.__i    = i
 
-        base =(f'{parent._slc.platform}-'
-               f'{parent._slc.mode}{iw}-'
-               f'{parent._slc.product}-'
-               f'{parent.name}-'
-               
-               # Start/stop times are different for each swath.
-               # f'{parent._slc.start_time}-'
-               # f'{parent._slc.stop_time}-'
-               # Times can be used to derive order.
-               
-               '*'
-               
-               f'{parent._slc.abs_orbit}-'
-               f'{parent._slc.mission_data_take_id}-'
-               
-               # ddd.ext 3 digit incremental number
-               # plus file extension.
-               '*'
-               .lower())
+        base = (f'{parent._slc.platform}-'
+                f'{parent._slc.mode}{i}-'
+                f'{parent._slc.product}-'
+                f'{parent.name}-'
+                
+                # Start/stop times are different for each swath.
+                # f'{parent._slc.start_time}-'
+                # f'{parent._slc.stop_time}-'
+                # Times can be used to derive order.
+                
+                '*'
+                
+                f'{parent._slc.abs_orbit}-'
+                f'{parent._slc.mission_data_take_id}-'
+                
+                # ddd.ext 3 digit incremental number
+                # plus file extension.
+                '*'
+                .lower())
 
         Measurement.__init__(self, glob(os.path.join(parent._slc._SAFE,
                                                           'measurement',
@@ -222,7 +222,13 @@ class Swath(Measurement, Annotation):
 
     @property
     def band(self):
+        "Returning the name of the band it belongs to."
+        # Should it return the name or the band instance?
         return self._band
+    
+    @property
+    def array(self):
+        "# TODO Assemble the swath's array."
 
     def __getitem__(self, idx):
         "Return desired bursts of Band object."
@@ -237,7 +243,7 @@ class Swath(Measurement, Annotation):
         return returnable[0] if len(returnable) == 1 else BurstGroup(returnable)
 
     def __repr__(self):
-        return f"<{type(self).__name__} {self._iw} object>"
+        return f"<{type(self).__name__} {self.__i} object>"
 
 
 from  .geolocation import Geolocator
@@ -250,6 +256,7 @@ class Burst:
         self.__swath     = parent
         self.__band      = parent.band
         self.__i         = i
+        self.__burstn    = i + 1
         self.__path      = parent.measurement
         self.__lpb       = parent._linespb
         self.__spb       = parent._samplespb
@@ -311,28 +318,33 @@ class Burst:
         return np.angle(self.array)
 
     def __repr__(self):
-        return f"<{type(self).__name__} {self.__i} object>"
+        return f"<{type(self).__name__} {self.__burstn} object>"
 
 
 from  .assembly import Deburster, SwathMerger
 
 
-class BurstGroup:
+class BurstGroup(Burst):
     def __init__(self, bursts: List[Burst]):
         self.__bursts   = []
         self.__i        = []
+        self.__burstn   = []
         self.__width    = 0
         self.__height   = 0
         
         for burst in bursts:
             self.__bursts.append(burst)
             self.__i.append(burst._Burst__i)
+            self.__burstn.append(burst._Burst__burstn)
+            
             # Sum up all the valid burst heights ignoring
             # overlaps. Subtract overlaps later.
             self.__height += burst._Burst__src_coords[-1]
             
             # Update to the minimum width.
             if burst._Burst__src_coords[2] < self.__width or not self.__width:
+                # Minimum width ensures no blank space.
+                # in range direction.
                 self.__width = burst._Burst__src_coords[2]
         
         self.__deburst   = Deburster(bursts)
@@ -342,11 +354,10 @@ class BurstGroup:
             self.__height - sum(self.__deburst.overlaps),
             
             # Minimum of all burst widths.
+            # Temporary solution, to be revisited.
             self.__width
         )
         
-        self.__mod_gcps()
-
     @property
     def array(self):
         array = np.zeros((self.__shape), dtype=np.complex64)
@@ -357,9 +368,9 @@ class BurstGroup:
                   # Number of burst lines minus overlap
                   # with previous burst.
                   p:barray.shape[0] + p,
-                  # Fixed width.
+                  # Enforce width.
                    :self.__shape[1]] = barray[:,
-                                              # Ensure correct width.
+                                              # Enforce width.
                                               :self.__shape[1]]
         return array
     
@@ -379,7 +390,7 @@ class BurstGroup:
         ds.FlushCache()
     
     def __repr__(self):
-        return f"<{type(self).__name__} {self.__i} object>"
+        return f"<{type(self).__name__} {self.__burstn} object>"
 
 
 class GRD(S1SARImage):
