@@ -211,7 +211,7 @@ class Swath(Measurement, Annotation):
                                                           'annotation',
                                                                 base))[0])
 
-        self.__bursts = [
+        self._bursts = [
             
             # Build Bursts.
             Burst(i, self) for i in range(self._num_bursts)
@@ -236,7 +236,7 @@ class Swath(Measurement, Annotation):
         if not isinstance(idx, slice):
             idx = slice(idx, idx + 1 or None)
             
-        returnable = self.__bursts[idx]
+        returnable = self._bursts[idx]
         # TODO
         # Should probably return a "BurstGroup" object regardless.
         # Likely rename the class to "Bursts".

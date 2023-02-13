@@ -3,7 +3,12 @@ from .structures import Burst, Swath
 
 
 class Deburster:
-    "Class to handle debursting."
+    """
+    Class to handle debursting.
+    
+    Calculate the overlap between arrays and
+    return the corrected index for the destination array.
+    """
     def __init__(self, bursts: List[Burst]):
         self._bursts   = bursts
         self._pointerA = 0
