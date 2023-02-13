@@ -3,9 +3,18 @@ from   osgeo       import gdal, gdal_array, osr
 from   abc         import ABC, abstractmethod
 from ..shared      import SARImage, XMLMetadata, InvalidInputError
 from   typing      import List
+from   datetime    import datetime
 
 import os
-import numpy  as     np
+import numpy       as     np
+
+
+GNSS = "https://scihub.copernicus.eu/gnss/odata/v1/Products?$platformname=Sentinel-1&$producttype=AUX_RESORB&$top=1&$format=json"
+USER = "gnssguest"
+KEY  = USER
+
+
+C = 299792458.0
 
 
 class SAFEDirectory:
@@ -56,19 +65,94 @@ class Manifest(XMLMetadata):
         # Should be populated with
         # interior manifest info.
         """
-
+        
 
 class Annotation(XMLMetadata):
+    
+    ORBITVECS = None
+    PASS      = None
+    
     def __init__(self, path: str):
         super().__init__(path)
         self._num_bursts = len  (self.swathTiming.burstList)
         self._linespb    = int  (self.swathTiming.linesPerBurst.text)        
         self._samplespb  = int  (self.swathTiming.samplesPerBurst.text)
-        self._dt         = float(self.imageAnnotation
+        self._azdt       = float(self.imageAnnotation
                                      .imageInformation
                                      .azimuthTimeInterval
                                      .text)
+        # Meters.
+        self._azpspacing = float(self.imageAnnotation
+                                     .imageInformation
+                                     .azimuthPixelSpacing.text)
+        # Meters.
+        self._rgpspacing = float(self.imageAnnotation
+                                     .imageInformation
+                                     .rangePixelSpacing.text)
+        # Ascending or Descending.
+        self._pass       = self.generalAnnotation.productInformation['pass']
+        # Range sample interval.
+        self._rgSamplingRate = float(self.generalAnnotation
+                                         .productInformation
+                                         .rangeSamplingRate.text)
+        # Two-way slant range time to first sample (seconds).
+        self._slantRangeTime = float(self.imageAnnotation
+                                         .imageInformation
+                                         .slantRangeTime.text)
+        # Seconds? m/s div 1 / s is meters?
+        self._rgdt        = C / self._rgSamplingRate / 2
+        # Sampling rate per sample? [Hz].
+        self._rgSampleInt = self._rgSamplingRate / self._rgpspacing
+        # Boolean flag.
+        self._bscorrectionap = bool(self.imageAnnotation
+                                        .processingInformation
+                                        .bistaticDelayCorrectionApplied.text)
+        self._firstLineUTC   = (self.imageAnnotation
+                                    .imageInformation
+                                    .productFirstLineUtcTime)
+        self._lastLineUTC    = (self.imageAnnotation
+                                    .imageInformation
+                                    .productLastLineUtcTime)
+        self._radarFreq      = float(self.generalAnnotation
+                                         .productInformation
+                                         .radarFrequency.text)
+        self._numberOfLines   = int(self.imageAnnotation
+                                        .imageInformation
+                                        .numberOfLines.text)
+        self._numberOfSamples = int(self.imageAnnotation
+                                        .imageInformation
+                                        .numberOfSamples.text)
+        self._orbitVectors    = self.generalAnnotation.orbitList
+        self._numOfStateVecs  = len(self._orbitVectors)
         
+        if not Annotation.ORBITVECS:
+            orbitvecs = [
+                          # Time.
+                          [np.datetime64(element[0].text),
+                          
+                          # Position X, Y, Z.
+                          np.array(
+                          (float(element[2][0].text),
+                           float(element[2][1].text),
+                           float(element[2][2].text))),
+                          
+                          # Velocity X, Y, Z.
+                          np.array(
+                          (float(element[3][0].text),
+                           float(element[3][1].text),
+                           float(element[3][2].text)))]
+                         
+                         for element in
+                         self._orbitVectors.element.getchildren()]
+
+            Annotation.ORBITVECS = orbitvecs
+        
+        pointList   = self.geolocationGrid.geolocationGridPointList
+        self.bounds = [float(pointList.geolocationGridPoint_0.longitude.text),
+                       float(pointList.geolocationGridPoint_0.latitude.text),
+                       float(pointList.geolocationGridPoint_209.longitude.text),
+                       float(pointList.geolocationGridPoint_209.latitude.text)]
+                
 
 class S1SARImage(SARImage, SAFEDirectory):
     "Sentinel-1 SAR image parser class."
@@ -86,7 +170,7 @@ class S1SARImage(SARImage, SAFEDirectory):
         SAFE           = os.path.split(SAFE)[-1]
         metadata: list = SAFE.replace('.', '_').split('_')
         
-        # Remove empty string.
+        # Remove empty string if exists.
         '' in metadata and metadata.remove('')
         
         (self.platform,
@@ -108,14 +192,14 @@ class S1SARImage(SARImage, SAFEDirectory):
          self.mission_data_take_id,
          self.unique_id,
          _) = metadata
-        
+
         self._bands      = self._POLARISATIONS[__sod][__pol]
         self._num_swaths = self.__NSWATHS[self.mode]
 
     @property
     def bands(self):
         return self._bands
-        
+
 
 class SLC(S1SARImage):
     """
@@ -160,7 +244,7 @@ class Band:
             in range(1, parent._num_swaths + 1)
             
         ]
-        self.__merger: SwathMerger = SwathMerger()
+        self.__merger = SwathMerger(self.__swaths)
     
     def __getitem__(self, idx):
         "Return desired Swath."
@@ -218,7 +302,7 @@ class Swath(Measurement, Annotation):
         
         ]
         
-        self._geoloc = Geolocator(self)
+        self._georef = SimpleGeoreferencer(self)
 
     @property
     def band(self):
@@ -244,9 +328,14 @@ class Swath(Measurement, Annotation):
 
     def __repr__(self):
         return f"<{type(self).__name__} {self.__i} object>"
-
-
-from  .geolocation import Geolocator
+    
+    def __len__(self):
+        return self._num_bursts
+    
+    def __iter__(self):
+        for burst in self._bursts:
+            return burst
+        raise StopIteration
 
 
 class Burst:
@@ -269,7 +358,7 @@ class Burst:
                                         sep=' ',
                                         dtype=int)
         
-        self._dt        = parent._dt
+        self._dt        = parent._azdt
         self._t         = float(self.burst_info.azimuthAnxTime.text)
         self._atimes    = self._t + np.arange(self._lpb) * self._dt
         
@@ -291,6 +380,7 @@ class Burst:
         # self._band = parent.__name
         
         # The array coordinates of the burst.
+        # Change implementation to pull the entire width of the tif.
         self._arr_coords = (self._hstart,
                             self._vstart,
                             self._hend-self._hstart,
@@ -321,7 +411,8 @@ class Burst:
         return f"<{type(self).__name__} {self._burstn} object>"
 
 
-from  .assembly import Deburster, SwathMerger
+from  .assembly         import Deburster, SwathMerger
+from  .georeferencing   import SimpleGeoreferencer
 
 
 class BurstGroup(Burst):
@@ -384,9 +475,13 @@ class BurstGroup(Burst):
                                              bands=1,
                                              eType=gdal.GDT_Float32)
         ds.WriteArray(self.amplitude)
-        ref = osr.SpatialReference()
-        ref.ImportFromEPSG(4326)
-        ds.SetGCPs(self.GCPs, ref)
+        ref  = self._bursts[0]._swath._georef.GetSpatialReference()
+        proj = self._bursts[0]._swath._georef.GetProjection()
+        geotrans = self._bursts[0]._swath._georef.GetGeoTransform()
+        ds.SetGeoTransform(geotrans)
+        ds.SetSpatialRef(ref)
+        ds.SetProjection(proj)
+        # ds.SetGCPs(self.GCPs, ref)
         ds.FlushCache()
     
     def __repr__(self):

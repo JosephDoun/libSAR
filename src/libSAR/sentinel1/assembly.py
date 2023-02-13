@@ -50,11 +50,13 @@ class Deburster:
         
         overlap = (
             # Azimuth time of last valid azimuth sample of previous burst.
-            x._atimes[x._arr_coords[1] + x._arr_coords[3] - x._line] -
+            x._atimes[x._arr_coords[1] + x._arr_coords[3] - x._line]
+            # Difference.
+            -
             # Azimuth time of first valid azimuth sample of current burst.
             y._atimes[y._arr_coords[1] - y._line]
             
-        # This difference is expected to te positive.
+            # This difference is expected to be positive.
         )
         # Following lines might have to change
         # from floor division to rounding.
@@ -68,4 +70,5 @@ class Deburster:
     
 
 class SwathMerger:
-    pass
+    def __init__(self, swaths: List[Swath]):
+        self._swaths = swaths

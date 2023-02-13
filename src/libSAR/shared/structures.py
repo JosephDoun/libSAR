@@ -37,17 +37,17 @@ class XMLMetadata(ABC):
         self._head    : etree._Element     = self._tree.getroot()
         
         for child in self._head.getchildren():
-            self.__dict__[child.tag] = XMLMetadataHead(child)
+            self.__dict__[child.tag] = XMLMetadataElement(child)
 
     def children(self):
         return list(map(XMLMetadata.__tag, self._head.getchildren()))
 
     def __getitem__(self, key: str):
         assert key in self.children(), f"Key <{key}> does not exist in tree."
-        return XMLMetadataHead(self._head.xpath(key)[0])
+        return XMLMetadataElement(self._head.xpath(key)[0])
 
 
-class XMLMetadataHead(ABC):
+class XMLMetadataElement(ABC):
     def __init__(self, element: etree._Element):
         self.element   = element
         self.text      = self.element.text
@@ -55,7 +55,7 @@ class XMLMetadataHead(ABC):
         __count        = [self._children.count(x)-1 for x in self._children]
         for i, child in enumerate(self.element.getchildren()):
             key = child.tag if not any(__count) else child.tag + '_%s' % i
-            self.__dict__[key] = XMLMetadataHead(child)
+            self.__dict__[key] = XMLMetadataElement(child)
 
     def __len__(self):
         return len(self._children)
